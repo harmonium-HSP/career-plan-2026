@@ -491,15 +491,7 @@
       const reveal = document.querySelector(".opener-reveal");
       const backButton = document.querySelector("#back");
       const dockButtons = Array.from(document.querySelectorAll("#dock .dock-card"));
-      if (reveal) {
-        gsap.killTweensOf(reveal);
-        gsap.set(reveal, { visibility: "visible", opacity: 0, y: 18 });
-        if (!reduced) {
-          gsap.to(reveal, { opacity: 1, y: 0, duration: 0.72, ease: "power2.out" });
-        } else {
-          gsap.set(reveal, { opacity: 1, y: 0 });
-        }
-      }
+      if (reveal) gsap.set(reveal, { visibility: "visible", opacity: 0, y: 0 });
       if (backButton) gsap.set(backButton, { visibility: "visible", clearProps: "opacity" });
       gsap.set(".plus-arm-x", { scaleX: 1 });
       gsap.set(".plus-arm-y", { scaleY: 1 });
@@ -518,6 +510,7 @@
       stage.remove();
       mountScroll();
       ScrollTrigger.refresh();
+      if (reveal) sweepVertical(reveal.parentNode, true);
       followTitle();
       syncDockScroll(true);
       busy = false;
@@ -705,7 +698,28 @@
     if (lenis) lenis.scrollTo(0, { immediate: true });
   }
 
+  let verticalSweep = null;
+  let coverNavOpacity = 1;
+
+  function stopVerticalSweep() {
+    if (verticalSweep) verticalSweep.destroy();
+    verticalSweep = null;
+  }
+
+  function sweepVertical(copy, entering) {
+    const reveal = copy && copy.querySelector(".opener-reveal");
+    if (!reveal) return null;
+    gsap.killTweensOf(reveal);
+    gsap.set(reveal, { y: 0 });
+    verticalSweep = !reduced && window.AsciiTitleSweep && window.AsciiTitleSweep.attach({
+      from: entering ? null : copy, to: entering ? copy : null, duration: 0.78
+    });
+    if (!verticalSweep) reveal.style.opacity = entering ? "1" : "0";
+    return verticalSweep;
+  }
+
   function stopScroll() {
+    stopVerticalSweep();
     if (window.BendView) BendView.stop();
     railMounting = true;
     syncRail();
@@ -741,8 +755,28 @@
     const photo = document.querySelector(".opener-photo");
     const copy = document.querySelector(".opener-copy");
     gsap.set(copy, { xPercent: -50, yPercent: -50, opacity: 1, y: 0 });
+    let lastProgress = 0;
+    let entering = !nextHandoff;
+    coverNavOpacity = 1;
+    const nav = { opacity: 1 };
     const timeline = gsap.timeline({
-      onUpdate: followTitle,
+      onUpdate: function () {
+        coverNavOpacity = nav.opacity;
+        const p = this.progress();
+        if (!nextHandoff && !coverTurn && !railMounting && p !== lastProgress) {
+          const forward = p < lastProgress;
+          if (p >= 1) {
+            stopVerticalSweep();
+            copy.querySelector(".opener-reveal").style.opacity = "0";
+            entering = false;
+          } else if (forward !== entering) {
+            entering = forward;
+            sweepVertical(copy, entering);
+          }
+        }
+        lastProgress = p;
+        followTitle();
+      },
       scrollTrigger: {
         trigger: opener,
         start: "top top",
@@ -752,7 +786,7 @@
     });
     const coverScale = window.BendMath ? BendMath.CONFIG.coverScale : 0.82;
     timeline.to(photo, { scale: coverScale, ease: "none" }, 0);
-    timeline.to(copy, { opacity: 0, y: -28, xPercent: -50, yPercent: -50, ease: "none", immediateRender: false }, 0.55);
+    timeline.to(nav, { opacity: 0, ease: "none", immediateRender: false }, 0.55);
     timeline.fromTo(".plus-arm-x", { scaleX: 1 }, { scaleX: 0, ease: "none", immediateRender: false }, 0.55);
     timeline.fromTo(".plus-arm-y", { scaleY: 1 }, { scaleY: 0, ease: "none", immediateRender: false }, 0.55);
 
@@ -839,7 +873,7 @@
     }
     const copy = document.querySelector(".opener .opener-copy");
     if (!copy) return;
-    const opacity = parseFloat(getComputedStyle(copy).opacity);
+    const opacity = coverNavOpacity;
     const visible = coverNavigationVisible();
     document.querySelectorAll(".side-plus").forEach(function (button) {
       button.classList.toggle("is-on", visible && plusesWanted);
@@ -913,16 +947,8 @@
       gsap.set(reveal, { opacity: 1, y: 0 });
       return Promise.resolve();
     }
-    gsap.set(reveal, { opacity: 0, y: 18 });
-    return new Promise(function (resolve) {
-      gsap.to(reveal, {
-        opacity: 1,
-        y: 0,
-        duration: duration,
-        ease: "power2.out",
-        onComplete: resolve
-      });
-    });
+    const sweep = sweepVertical(reveal.parentNode, true);
+    return sweep ? new Promise(function (resolve) { sweep.whenDone(resolve); }) : Promise.resolve();
   }
 
   function openChapter(options) {
@@ -1106,7 +1132,7 @@
     const copy = document.querySelector(".opener .opener-copy");
     return !!copy && (reduced
       ? currentScrollY() < window.innerHeight * 0.8
-      : parseFloat(getComputedStyle(copy).opacity) > 0.2);
+      : coverNavOpacity > 0.2);
   }
 
   function suppressNextPluses() {
@@ -1165,14 +1191,16 @@
     Object.assign(copy.style, { left: "50%", top: "50%", transform: "translate(-50%, -50%)" });
     layer.appendChild(copy);
     document.body.appendChild(layer);
+    button.querySelector(".next-copy").style.visibility = "hidden";
+    stopVerticalSweep();
+    const exitSweep = !reduced && window.AsciiTitleSweep && window.AsciiTitleSweep.attach({ from: copy, duration: 0.78 });
+    if (exitSweep) await new Promise(function (resolve) { exitSweep.whenDone(resolve); });
+    copy.style.visibility = "hidden";
     rememberCard(index + 1);
     await openChapter({ holdTitle: true });
     if (lenis) { lenis.reset(); lenis.stop(); }
-    const reveal = document.querySelector(".opener-reveal");
-    if (reveal) gsap.set(reveal, { opacity: 1, y: 0 });
     await dropLayer(layer);
     showDock(index);
-    if (!reduced) await after(600);
     resetScroll();
     nextProgress = 0;
     const sheet = document.querySelector("#beats .sheet");
@@ -1481,7 +1509,28 @@
     });
   }
 
+  function revealShown(copy) {
+    if (!copy || !copy.isConnected) return false;
+    const reveal = copy.querySelector(".opener-reveal");
+    if (!reveal) return false;
+    return parseFloat(getComputedStyle(reveal).opacity) > 0.35;
+  }
+
+  function sweepSource(turn) {
+    const sweep = turn.sweep;
+    if (sweep && !sweep.finished()) {
+      const node = sweep.progress() < 0.5 ? sweep.fromElement() : sweep.toElement();
+      if (node && node.isConnected) return node;
+    }
+    if (revealShown(turn.copy)) return turn.copy;
+    if (revealShown(turn.outgoing)) return turn.outgoing;
+    const live = document.querySelector(".opener .opener-copy");
+    if (revealShown(live)) return live;
+    return null;
+  }
+
   function prepareTurnCopy(turn) {
+    const fromNode = sweepSource(turn);
     const item = plan.chapters[turn.target];
     const copy = document.createElement("div");
     copy.className = "opener-copy" + (usesInk(item) ? " is-ink" : "");
@@ -1498,6 +1547,9 @@
     turn.layer.appendChild(back);
     // 与真实标题的滚动初始化使用同一变换，避免窄屏亚像素舍入跳动。
     if (!reduced) gsap.set(copy, { xPercent: -50, yPercent: -50, opacity: 1, y: 0 });
+    if (!reduced && window.AsciiTitleSweep) {
+      turn.sweep = window.AsciiTitleSweep.attach({ overlap: true, from: fromNode, to: copy, direction: turn.direction, duration: 0.78 });
+    }
   }
 
   function drawCoverTurn(turn) {
@@ -1510,7 +1562,7 @@
     turn.layer.style.width = width + "px";
     turn.layer.style.height = height + "px";
     if (turn.copy) {
-      // 标题和返回按钮共用裁切边界的末段进度，封面停稳时两者也同时停稳。
+      // 返回按钮仍用末段上浮淡入。标题扫带自己走两秒，不跟这条末段进度。
       let remaining = 0;
       for (let i = 1; i < turn.bounds.length - 1; i += 1) {
         remaining = Math.max(remaining, Math.abs((i <= turn.target ? 0 : 1) - turn.bounds[i]));
@@ -1518,7 +1570,9 @@
       const threshold = 0.5 / (width * dpr);
       const progress = reduced ? 1 : Math.max(0, Math.min(1, (0.12 - remaining) / (0.12 - threshold)));
       const eased = progress * progress * (3 - 2 * progress);
-      gsap.set([turn.copy.querySelector(".opener-reveal"), turn.back], { opacity: eased, y: 18 * (1 - eased) });
+      const reveal = turn.copy.querySelector(".opener-reveal");
+      if (turn.back) gsap.set(turn.back, { opacity: eased, y: 18 * (1 - eased) });
+      if (!turn.sweep && reveal) gsap.set(reveal, { opacity: eased, y: 18 * (1 - eased) });
     }
     turn.slots.forEach(function (slot, i) {
       slot.node.style.clipPath = "inset(0px " + (width - pixels[i + 1]) + "px 0px " + pixels[i] + "px)";
@@ -1541,6 +1595,15 @@
     if (coverTurn !== turn) return;
     window.cancelAnimationFrame(turn.raf);
     window.cancelAnimationFrame(turn.dropRaf);
+    const sweep = turn.sweep;
+    turn.sweep = null;
+    const pageReveal = document.querySelector(".opener .opener-reveal");
+    if (sweep && !sweep.finished() && pageReveal) {
+      sweep.useUnderlay(pageReveal);
+      verticalSweep = sweep;
+    } else if (sweep) {
+      sweep.destroy();
+    }
     turn.layer.remove();
     coverTurn = null;
     syncRail();
@@ -1554,7 +1617,13 @@
       if (!turn.mounted) mountScroll();
       if (lenis) lenis.start();
       showDock(index);
-      gsap.set(document.querySelector(".opener .opener-reveal"), { opacity: 1, y: 0 });
+      if (!sweep || sweep.finished()) {
+        const reveal = document.querySelector(".opener .opener-reveal");
+        if (reveal) {
+          reveal.style.opacity = "1";
+          reveal.style.clipPath = "";
+        }
+      }
       showPluses(0);
       if (dockFocus) document.querySelector('#dock [data-index="' + dockFocus.dataset.index + '"]').focus({ preventScroll: true });
     }
@@ -1564,6 +1633,19 @@
     }
     followTitle();
     syncDockScroll();
+  }
+
+  function cancelCoverTurn(turn) {
+    if (coverTurn !== turn) return;
+    if (window.AsciiTitleSweep) window.AsciiTitleSweep.cancelAll();
+    turn.sweep = null;
+    if (index !== turn.origin) {
+      rememberCard(turn.origin);
+      renderChapter();
+      turn.mounted = false;
+    }
+    updateDockCurrent(turn.origin, true);
+    finishCoverTurn(turn);
   }
 
   function commitCoverTurn(turn) {
@@ -1591,6 +1673,11 @@
       mountScroll();
       if (lenis) lenis.stop();
       turn.mounted = true;
+      // Paint the settled live title beneath the opaque cover before its removal.
+      // An unfinished sweep still owns its clipped rows until useUnderlay().
+      if (!turn.sweep || turn.sweep.finished()) {
+        document.querySelector(".opener .opener-reveal").style.opacity = "1";
+      }
       turn.dropRaf = window.requestAnimationFrame(function () {
         if (coverTurn !== turn || version !== turn.version) return;
         turn.dropRaf = window.requestAnimationFrame(function () {
@@ -1667,6 +1754,7 @@
       followTitle();
     }
     const turn = coverTurn;
+    turn.direction = nextIndex > previousTarget ? -1 : 1;
     turn.target = nextIndex;
     updateDockCurrent(nextIndex, true);
     turn.version += 1;
@@ -1674,36 +1762,52 @@
     window.cancelAnimationFrame(turn.raf);
     window.cancelAnimationFrame(turn.dropRaf);
     turn.raf = 0;
-    // 新输入立即丢弃过期目标文案，加载失败时再按回退目标重建。
-    if (turn.copy) { turn.copy.remove(); turn.copy = null; }
+    // 旧扫带先留着，新标题栅格化后再换，避免空一拍。
     if (turn.back) { turn.back.remove(); turn.back = null; }
     if (turn.started) gsap.killTweensOf(document.querySelector(".opener-reveal"));
     const version = turn.version;
+    if (!turn.started) {
+      turn.started = true;
+      turn.slots.forEach(function (slot) { slot.node.style.visibility = "hidden"; });
+      drawCoverTurn(turn);
+      const copy = document.querySelector(".opener-copy").cloneNode(true);
+      turn.outgoing = copy;
+      turn.layer.appendChild(copy);
+      document.body.appendChild(turn.layer);
+      // Keep the current frame available to the incoming sweep.
+      verticalSweep = null;
+      stopScroll();
+      gsap.killTweensOf(document.querySelector(".opener-reveal"));
+      beatsRoot.inert = true;
+      plusRevealTweens.forEach(function (tween) { tween.kill(); });
+      gsap.set(".plus-arm-x", { scaleX: 1 });
+      gsap.set(".plus-arm-y", { scaleY: 1 });
+    }
+    gsap.set(document.querySelector(".opener-reveal"), { opacity: 0 });
+    const staleCopy = turn.copy;
+    const staleOut = turn.outgoing;
+    prepareTurnCopy(turn);
+    if (turn.sweep) {
+      if (staleOut && staleOut !== turn.copy) staleOut.remove();
+      if (staleCopy && staleCopy !== turn.copy) staleCopy.remove();
+      turn.outgoing = null;
+    } else if (staleOut) {
+      gsap.to(staleOut, {
+        opacity: 0,
+        duration: reduced ? 0 : 0.22,
+        onComplete: function () { staleOut.remove(); }
+      });
+      turn.outgoing = null;
+    }
+    if (!turn.sweep && staleCopy) staleCopy.remove();
+    drawCoverTurn(turn);
     Promise.all([turn.slots[turn.origin].prepared, turn.slots[nextIndex].prepared]).then(function (ready) {
       if (coverTurn !== turn || turn.version !== version) return;
-      if (!ready[0]) { finishCoverTurn(turn); return; }
-      if (!ready[1]) {
-        turn.target = turn.origin;
-        updateDockCurrent(turn.origin, true);
-        if (!turn.started) { finishCoverTurn(turn); return; }
+      if (!ready[0] || !ready[1]) {
+        cancelCoverTurn(turn);
+        return;
       }
-      if (!turn.started) {
-        turn.started = true;
-        drawCoverTurn(turn);
-        const copy = document.querySelector(".opener-copy").cloneNode(true);
-        turn.layer.appendChild(copy);
-        document.body.appendChild(turn.layer);
-        stopScroll();
-        gsap.killTweensOf(document.querySelector(".opener-reveal"));
-        beatsRoot.inert = true;
-        gsap.to(copy, { opacity: 0, duration: reduced ? 0 : 0.22, onComplete: function () { copy.remove(); } });
-        plusRevealTweens.forEach(function (tween) { tween.kill(); });
-        gsap.set(".plus-arm-x", { scaleX: 1 });
-        gsap.set(".plus-arm-y", { scaleY: 1 });
-      }
-      gsap.set(document.querySelector(".opener-reveal"), { opacity: 0 });
-      prepareTurnCopy(turn);
-      drawCoverTurn(turn);
+      turn.slots.forEach(function (slot) { slot.node.style.visibility = slot.ready ? "visible" : "hidden"; });
       turn.phase = "moving";
       turn.time = performance.now();
       scheduleCoverTurn(turn);
@@ -2113,6 +2217,17 @@
   document.querySelector("#back").addEventListener("click", backHome);
 
   window.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && coverTurn && coverTurn.phase !== "moving") {
+      event.preventDefault();
+      cancelCoverTurn(coverTurn);
+      return;
+    }
+    const chapterArrow = view === "chapter" && (event.key === "ArrowRight" || event.key === "ArrowLeft");
+    if (chapterArrow && (coverTurn || (!busy && currentScrollY() <= 2))) {
+      event.preventDefault();
+      if (!event.repeat) switchChapter((coverTurn ? coverTurn.target : index) + (event.key === "ArrowRight" ? 1 : -1));
+      return;
+    }
     if (busy) {
       const chapterButton = event.target.closest && event.target.closest(".side-plus, #dock .dock-card");
       if (coverTurn && (event.key === "Tab" || (chapterButton && (event.key === "Enter" || event.key === " ")))) return;
@@ -2125,12 +2240,6 @@
     } else if (event.key === "ArrowLeft" && view === "home") {
       event.preventDefault();
       moveHome(index - 1);
-    } else if (event.key === "ArrowRight" && view === "chapter" && !coverTurn && currentScrollY() <= 2) {
-      event.preventDefault();
-      switchChapter(index + 1);
-    } else if (event.key === "ArrowLeft" && view === "chapter" && !coverTurn && currentScrollY() <= 2) {
-      event.preventDefault();
-      switchChapter(index - 1);
     } else if (view === "chapter" && (event.key === "ArrowDown" || event.key === "PageDown")) {
       event.preventDefault();
       moveSheet(1);
