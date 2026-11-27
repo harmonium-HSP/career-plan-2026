@@ -13,6 +13,10 @@
   let lenis = null;
   let lenisTick = null;
   let busy = false;
+  function setBusy(value) {
+    busy = value;
+    syncGlitch();
+  }
   let railMounting = true;
   let homePlayed = false;
   let homeTarget = 0;
@@ -312,7 +316,7 @@
   async function playStartupIntro() {
     if (!startupWall || homePlayed) return Promise.resolve();
     homePlayed = true;
-    busy = true;
+    setBusy(true);
     startupState = "chapter";
     const placement = window.STARTUP_WALL.resolveCoverPlacement(
       plan.chapters.length,
@@ -328,7 +332,7 @@
       startupWall.hidden = true;
       showDock(startupTarget);
       await revealOpener(0);
-      busy = false;
+      setBusy(false);
       return;
     }
     chapterView.classList.add("is-intro-overlay");
@@ -513,7 +517,7 @@
       if (reveal) sweepVertical(reveal.parentNode, true);
       followTitle();
       syncDockScroll(true);
-      busy = false;
+      setBusy(false);
     }).catch(function () {
       const dockNode = document.querySelector("#dock");
       if (dockNode) {
@@ -524,7 +528,7 @@
       startupWall.innerHTML = "";
       startupWall.hidden = true;
       chapterView.hidden = false;
-      busy = false;
+      setBusy(false);
     });
   }
 
@@ -745,6 +749,8 @@
       return;
     }
     lenis = new Lenis({ duration: 1.05, smoothWheel: true });
+    lenis.on("scroll", syncGlitch);
+    lenis.on("virtual-scroll", function () { queueMicrotask(syncGlitch); });
     lenis.on("scroll", ScrollTrigger.update);
     lenis.on("scroll", placeNextWindow);
     lenisTick = function (time) { lenis.raf(time * 1000); };
@@ -907,7 +913,7 @@
   function scrollToNode(node, duration) {
     interruptReadingDrag();
     if (!node || coverTurn || nextHandoff || nextAuto) return;
-    if (lenis) lenis.scrollTo(pageTop(node), { duration: duration || 0.9 });
+    if (lenis) { lenis.scrollTo(pageTop(node), { duration: duration || 0.9 }); syncGlitch(); }
     else node.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
   }
 
@@ -1177,7 +1183,7 @@
     nextHandoff = true;
     syncRail();
     plusesWanted = false;
-    busy = true;
+    setBusy(true);
     suppressNextPluses();
     if (readingDrag && readingDrag.moved) readingClick = { id: readingDrag.id, until: performance.now() + 500 };
     interruptReadingDrag();
@@ -1209,7 +1215,7 @@
       nextHandoff = false;
       syncRail();
       plusesWanted = true;
-      busy = false;
+      setBusy(false);
       if (lenis) { lenis.reset(); lenis.start(); }
       followTitle();
     }
@@ -1607,7 +1613,7 @@
     turn.layer.remove();
     coverTurn = null;
     syncRail();
-    busy = false;
+    setBusy(false);
     beatsRoot.inert = turn.beatsInert;
     rail.inert = turn.railInert;
     document.querySelector("#back").inert = turn.backInert;
@@ -1633,6 +1639,7 @@
     }
     followTitle();
     syncDockScroll();
+    syncGlitch();
   }
 
   function cancelCoverTurn(turn) {
@@ -1747,7 +1754,7 @@
       });
       coverTurn = turn;
       syncRail();
-      busy = true;
+      setBusy(true);
       rail.inert = true;
       document.querySelector("#back").inert = true;
       chapterView.classList.add("is-turning");
@@ -1818,7 +1825,7 @@
     if (busy || view !== "home") return;
     const currentCard = document.querySelectorAll(".photo-card")[cardIndex];
     if (!currentCard) return;
-    busy = true;
+    setBusy(true);
     velocity = 0;
     desired = 0;
     drive = "idle";
@@ -1826,7 +1833,7 @@
       rememberCard(cardIndex);
       openChapter();
       showDock(cardIndex);
-      busy = false;
+      setBusy(false);
       return;
     }
     const cardRect = currentCard.getBoundingClientRect();
@@ -1852,7 +1859,7 @@
     Promise.all([flight, dockFlight]).then(function (results) {
       rememberCard(cardIndex);
       openChapter();
-      dropLayer(results[0]).then(function () { busy = false; });
+      dropLayer(results[0]).then(function () { setBusy(false); });
     });
   }
 
@@ -1864,7 +1871,7 @@
     if (busy || view !== "chapter" || nextHandoff) return;
     const section = document.querySelector("#next-project");
     if (!section) return;
-    busy = true;
+    setBusy(true);
     interruptReadingDrag();
     if (lenis) { lenis.reset(); lenis.stop(); }
     suppressNextPluses();
@@ -1886,7 +1893,7 @@
             syncRail();
           },
           onComplete: resolve,
-          onInterrupt: function () { busy = false; resolve(); }
+          onInterrupt: function () { setBusy(false); resolve(); }
         });
       });
       nextAuto = null;
@@ -1900,7 +1907,7 @@
   }
 
   function returnToOpener() {
-    busy = true;
+    setBusy(true);
     if (lenis) lenis.stop();
     hidePluses();
     curtain.hidden = false;
@@ -1920,7 +1927,7 @@
           }
         });
         revealOpener().then(function () {
-          busy = false;
+          setBusy(false);
           followTitle();
           syncDockScroll();
         });
@@ -1935,7 +1942,7 @@
       returnToOpener();
       return;
     }
-    busy = true;
+    setBusy(true);
     velocity = 0;
     if (reduced) {
       stopScroll();
@@ -1948,7 +1955,7 @@
       hideDock();
       hidePluses();
       progress.style.transform = "scaleY(0)";
-      busy = false;
+      setBusy(false);
       return;
     }
     hidePluses();
@@ -1978,7 +1985,7 @@
       });
       const dockFlight = flyDock(index, true);
       Promise.all([flight, dockFlight]).then(function (results) {
-        dropLayer(results[0]).then(function () { busy = false; });
+        dropLayer(results[0]).then(function () { setBusy(false); });
         progress.style.transform = "scaleY(0)";
       });
     }, 180);
@@ -1986,7 +1993,7 @@
 
   function curtainTo(nextIndex) {
     if (busy) return;
-    busy = true;
+    setBusy(true);
     const go = function () {
       stopScroll();
       index = nextIndex;
@@ -1996,7 +2003,7 @@
     };
     if (reduced) {
       go();
-      busy = false;
+      setBusy(false);
       return;
     }
     curtain.hidden = false;
@@ -2014,7 +2021,7 @@
           transformOrigin: "bottom",
           onComplete: function () {
             curtain.hidden = true;
-            busy = false;
+            setBusy(false);
           }
         });
       }
@@ -2268,6 +2275,9 @@
     followTitle();
     syncDockScroll();
   }, { passive: true });
+  const syncGlitch = CoverGlitch.create(() => view === 'chapter' && !busy && !coverTurn && !railMounting &&
+    !nextNavigationSuppressed() && window.scrollY === 0 && (!lenis || lenis.targetScroll <= 0));
+  window.addEventListener('scroll', syncGlitch, { passive: true });
   buildCards();
   buildThumbs();
   buildCount();
