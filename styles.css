@@ -111,6 +111,9 @@ body.is-reading-drag, body.is-reading-drag #beats * { cursor: grabbing; }
 }
 
 .cover-glitch { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 31; pointer-events: none; }
+.home-ripple, .home-ripple-glint { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 50; pointer-events: none; }
+.home-ripple { z-index: 49; }
+.home-ripple-lens { position: fixed; pointer-events: none; backdrop-filter: url(#home-viewport-ripple); -webkit-backdrop-filter: url(#home-viewport-ripple); }
 
 .chapter-turn {
   position: fixed;

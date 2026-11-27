@@ -2156,11 +2156,16 @@
     if (busy) event.preventDefault();
   }, { passive: false });
 
+  const homeRipple = window.HomeRipple ? window.HomeRipple.create() : null;
   let pointerDrag = null;
   home.addEventListener("pointerdown", function (event) {
-    if (view !== "home" || event.button !== 0 || busy) return;
-    if (event.target.closest(".plus") || event.target.closest(".switcher")) return;
-    pointerDrag = { id: event.pointerId, x: event.clientX, origin: homeShown, moved: false, target: event.target, downT: performance.now() };
+    if (view !== "home" || home.hidden || !event.isPrimary || event.button !== 0 || busy) return;
+    home.dataset.dragged = "";
+    const entry = event.target.closest("#enter");
+    if (!entry && event.target.closest("button, a, input, textarea, select, [role='button'], .plus, .switcher, .thumb")) return;
+    const card = event.target.closest(".photo-card");
+    pointerDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, origin: homeShown, moved: false, card, downT: performance.now() };
+    if (!card && !entry && homeRipple) homeRipple.splash(pointerDrag.x, pointerDrag.y);
     drive = "spring";
     desired = 0;
   });
@@ -2170,6 +2175,7 @@
     if (!pointerDrag.moved) {
       if (Math.abs(dx) <= 8) return;
       pointerDrag.moved = true;
+      if (pointerDrag.card && homeRipple && view === "home" && !busy && !home.hidden) homeRipple.splash(pointerDrag.x, pointerDrag.y);
       pointerDrag.samples = [{ x: pointerDrag.x, t: pointerDrag.downT }];
       try { home.setPointerCapture(event.pointerId); } catch (error) { /* 指针已经松开时忽略 */ }
       const selection = window.getSelection();
@@ -2204,16 +2210,17 @@
       desired = 0;
       homeTarget = homeShown;
       drive = Math.abs(velocity) > 0.002 ? "coast" : "idle";
-    } else {
-      const hit = pointerDrag.target;
-      const card = hit && hit.closest ? hit.closest(".photo-card") : null;
-      if (hit && hit.closest && hit.closest("#enter")) enterFromHome();
-      else if (card) card.click();
+    } else if (pointerDrag.card) {
+      pointerDrag.card.click();
     }
     pointerDrag = null;
   }
   home.addEventListener("pointerup", endPointerDrag);
-  home.addEventListener("pointercancel", endPointerDrag);
+  home.addEventListener("pointercancel", function (event) {
+    if (!pointerDrag || event.pointerId !== pointerDrag.id) return;
+    home.dataset.dragged = "1";
+    pointerDrag = null;
+  });
   home.addEventListener("click", function (event) {
     if (home.dataset.dragged !== "1") return;
     event.preventDefault();
